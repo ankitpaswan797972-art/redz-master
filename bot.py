@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ParseMode
 from flask import Flask
 
-# ======================== MASTER CONFIGURATION (Secrets Removed) ========================
+# ======================== CONFIGURATION (Secrets from Render) ========================
 MASTER_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "0").split(",") if x]
 
@@ -13,14 +13,14 @@ DB_PATH = "master.db"
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# APIs - Ab Environment Variables se aayegi, hack nahi hogi!
+# APIs - Environment Variables se aayegi, hack nahi hogi!
 API_NUM = os.environ.get("API_NUM", "")
 API_AADHAR = os.environ.get("API_AADHAR", "")
 
 # ======================== FLASK WEB SERVER ========================
 app_web = Flask(__name__)
 @app_web.route('/')
-def home(): return "🚀 Master Bot & Clones are Running 24/7!"
+def home(): return "🔴 REDZONE Master Bot & Clones are Running 24/7!"
 def run_web():
     port = int(os.environ.get('PORT', 8080))
     app_web.run(host='0.0.0.0', port=port)
@@ -42,6 +42,28 @@ def init_db():
         first_name TEXT, coins INTEGER DEFAULT 5, total_searches INTEGER DEFAULT 0
     )''')
     db.commit(); db.close()
+
+# ======================== UI & KEYBOARDS ========================
+def get_main_menu_text_and_kb():
+    text = ("🔎 Select an option:\n\n"
+            "🕵️‍♂️ OSINT Search\n"
+            "💳 Add Credits\n"
+            "📊 My Profile\n"
+            "⚙️ Settings\n\n"
+            "🔴 REDZONE • Intelligence System")
+    kb = [
+        [InlineKeyboardButton("🕵️‍♂️ OSINT Search", callback_data="menu_search")],
+        [InlineKeyboardButton("💳 Add Credits", callback_data="menu_buy"), InlineKeyboardButton("📊 My Profile", callback_data="menu_profile")],
+        [InlineKeyboardButton("⚙️ Settings", callback_data="menu_settings")]
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+def get_admin_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 Cloned Bots", callback_data="adm_bots"), InlineKeyboardButton("📊 Global Stats", callback_data="adm_stats")],
+        [InlineKeyboardButton("🚫 Ban Bot", callback_data="adm_ban"), InlineKeyboardButton("✅ Unban Bot", callback_data="adm_unban")],
+        [InlineKeyboardButton("📣 Broadcast", callback_data="adm_broadcast")]
+    ])
 
 # ======================== API FORMATTER ========================
 def execute_search(query, stype):
@@ -68,53 +90,122 @@ def execute_search(query, stype):
             msg += f"👤 Name: {d.get('name', 'N/A')}\n👨 Father: {d.get('fname', 'N/A')}\n📱 Mobile: {d.get('mobile', 'N/A')}\n📍 Address: {str(d.get('address', 'N/A')).replace('!', ', ')}\n🔄 Circle: {d.get('circle', 'N/A')}\n"
         else: msg += "❌ No records found."
         
-    msg += "\n🚀 <b>REDZONE OSINT</b>"
+    msg += "\n🔴 <b>REDZONE OSINT</b>"
     return msg
 
-# ======================== CLONE BOT LOGIC ========================
-async def clone_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    token = context.bot_data['token']; user = update.effective_user
+# ======================== BOT LOGIC (Works for Master & Clones) ========================
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    token = context.bot.token; user = update.effective_user
     db = get_db(); c = db.cursor()
-    c.execute('SELECT * FROM clones WHERE bot_token = ?', (token,)); clone = c.fetchone()
-    if clone and clone['is_banned']: return await update.message.reply_text("🚫 This bot is banned by Master Admin.")
     
+    # Check if clone is banned
+    c.execute('SELECT * FROM clones WHERE bot_token = ?', (token,)); clone = c.fetchone()
+    if clone and clone['is_banned']: return await update.message.reply_text("🚫 This bot is banned by REDZONE Master Admin.")
+    
+    # Register User
     c.execute('SELECT * FROM users WHERE bot_token = ? AND telegram_id = ?', (token, user.id)); u = c.fetchone()
     if not u:
         c.execute('INSERT INTO users (bot_token, telegram_id, first_name, coins) VALUES (?, ?, ?, 5)', (token, user.id, user.first_name))
         db.commit()
-    
-    kb = [
-        [InlineKeyboardButton("📱 Number → Info", callback_data="src_num"), InlineKeyboardButton("🪪 Aadhaar → Info", callback_data="src_aadhar")],
-        [InlineKeyboardButton("🪙 My Credits", callback_data="menu_coins")]
-    ]
-    await update.message.reply_text(f"🚀 <b>Welcome to REDZONE OSINT</b>\n\n👤 {user.first_name}\n🪙 Coins: 5\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     db.close()
+    
+    text, kb = get_main_menu_text_and_kb()
+    await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
-async def clone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer(); data = q.data; user = update.effective_user
-    token = context.bot_data['token']
+    token = context.bot.token
     
     if data == "menu_back":
-        kb = [[InlineKeyboardButton("📱 Number → Info", callback_data="src_num"), InlineKeyboardButton("🪪 Aadhaar → Info", callback_data="src_aadhar")], [InlineKeyboardButton("🪙 My Credits", callback_data="menu_coins")]]
-        return await q.edit_message_text("🚀 <b>REDZONE OSINT</b>\n\nSelect an option:", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        text, kb = get_main_menu_text_and_kb()
+        return await q.edit_message_text(text, reply_markup=kb, parse_mode='HTML')
+        
+    elif data == "menu_search":
+        kb = [
+            [InlineKeyboardButton("📱 Number → Info", callback_data="src_num"), InlineKeyboardButton("🪪 Aadhaar → Info", callback_data="src_aadhar")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="menu_back")]
+        ]
+        await q.edit_message_text("🕵️‍♂️ <b>OSINT Search</b>\n\nSelect search type:", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        
     elif data.startswith("src_"):
         context.user_data['stype'] = 'num' if data == "src_num" else 'aadhar'
         await q.edit_message_text(f"📥 Please send your {context.user_data['stype']}:")
-    elif data == "menu_coins":
+        
+    elif data == "menu_buy":
+        await q.edit_message_text("💳 <b>Add Credits</b>\n\n1 Credit = 5 Rs\n10 Credits = 40 Rs\n\nContact Admin to buy credits.", parse_mode='HTML')
+        
+    elif data == "menu_profile":
         db = get_db(); c = db.cursor()
-        u = c.execute('SELECT coins FROM users WHERE bot_token = ? AND telegram_id = ?', (token, user.id)).fetchone()
+        u = c.execute('SELECT * FROM users WHERE bot_token = ? AND telegram_id = ?', (token, user.id)).fetchone()
         db.close()
-        await q.edit_message_text(f"🪙 <b>My Credits</b>\n\n💰 Balance: {u['coins'] if u else 0}", parse_mode='HTML')
+        if u:
+            await q.edit_message_text(f"📊 <b>My Profile</b>\n\n👤 Name: {u['first_name']}\n🪙 Credits: {u['coins']}\n🔍 Searches: {u['total_searches']}", parse_mode='HTML')
+            
+    elif data == "menu_settings":
+        await q.edit_message_text("⚙️ <b>Settings</b>\n\nBot: REDZONE OSINT\nVersion: 1.0\nStatus: Active", parse_mode='HTML')
 
-async def clone_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user; msg = update.message.text; token = context.bot_data['token']
+    # Admin Callbacks
+    elif data.startswith("adm_"):
+        if user.id not in ADMIN_IDS: return
+        if data == "adm_bots":
+            db = get_db(); c = db.cursor()
+            clones = c.execute('SELECT * FROM clones').fetchall(); db.close()
+            text = "🤖 <b>Cloned Bots</b>\n\n"
+            for cl in clones:
+                status = "🚫 Banned" if cl['is_banned'] else "✅ Active"
+                text += f"🤖 @{cl['bot_username']}\n   👑 Owner: <code>{cl['owner_id']}</code>\n   🔑 Token: <code>{cl['bot_token']}</code>\n   {status}\n\n"
+            await q.edit_message_text(text, parse_mode='HTML')
+        elif data == "adm_stats":
+            db = get_db(); c = db.cursor()
+            t_clones = c.execute('SELECT COUNT(*) FROM clones').fetchone()[0]
+            t_users = c.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+            db.close()
+            await q.edit_message_text(f"📊 <b>Global Stats</b>\n\n🤖 Total Clones: {t_clones}\n👥 Total Users: {t_users}", parse_mode='HTML')
+        elif data == "adm_ban":
+            context.user_data['admin_state'] = 'ban_bot'
+            await q.edit_message_text("🚫 Send the Bot Token to ban:")
+        elif data == "adm_unban":
+            context.user_data['admin_state'] = 'unban_bot'
+            await q.edit_message_text("✅ Send the Bot Token to unban:")
+        elif data == "adm_broadcast":
+            context.user_data['admin_state'] = 'broadcast'
+            await q.edit_message_text("📣 Send the message to broadcast to ALL users across ALL bots:")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user; msg = update.message.text; token = context.bot.token
+    
+    # Admin Commands
+    if user.id in ADMIN_IDS and context.user_data.get('admin_state'):
+        state = context.user_data['admin_state']
+        db = get_db(); c = db.cursor()
+        if state == 'ban_bot':
+            c.execute('UPDATE clones SET is_banned = 1 WHERE bot_token = ?', (msg,)); db.commit()
+            await update.message.reply_text(f"✅ Bot {msg} banned successfully.")
+        elif state == 'unban_bot':
+            c.execute('UPDATE clones SET is_banned = 0 WHERE bot_token = ?', (msg,)); db.commit()
+            await update.message.reply_text(f"✅ Bot {msg} unbanned successfully.")
+        elif state == 'broadcast':
+            users = c.execute('SELECT telegram_id, bot_token FROM users').fetchall()
+            s = 0
+            for u in users:
+                try:
+                    # Send message via the specific bot the user is using
+                    requests.get(f"https://api.telegram.org/bot{u['bot_token']}/sendMessage?chat_id={u['telegram_id']}&text={msg}")
+                    s += 1
+                except: pass
+            await update.message.reply_text(f"✅ Broadcast sent to {s} users.")
+        context.user_data['admin_state'] = None
+        db.close()
+        return
+
+    # Normal User Search Flow
     stype = context.user_data.get('stype')
-    if not stype: return await update.message.reply_text("Use /start first.")
+    if not stype: return await update.message.reply_text("Use /start to see menu.")
     
     db = get_db(); c = db.cursor()
     u = c.execute('SELECT * FROM users WHERE bot_token = ? AND telegram_id = ?', (token, user.id)).fetchone()
     if not u: return
-    if u['coins'] <= 0: return await update.message.reply_text("❌ Insufficient credits!")
+    if u['coins'] <= 0: return await update.message.reply_text("❌ Insufficient 🪙 credits!")
     
     c.execute('UPDATE users SET coins = coins - 1, total_searches = total_searches + 1 WHERE id = ?', (u['id'],))
     db.commit(); db.close()
@@ -127,16 +218,12 @@ async def clone_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def run_clone(token):
     app = Application.builder().token(token).build()
-    app.bot_data['token'] = token
-    app.add_handler(CommandHandler("start", clone_start))
-    app.add_handler(CallbackQueryHandler(clone_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, clone_message))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling(stop_signals=None)
 
-# ======================== MASTER BOT LOGIC ========================
-async def master_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome to Master Bot.\nUse /clone <BOT_TOKEN> to deploy your REDZONE OSINT Bot.")
-
+# ======================== MASTER SPECIFIC COMMANDS ========================
 async def master_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not context.args: return await update.message.reply_text("Usage: /clone <BOT_TOKEN>")
@@ -155,41 +242,12 @@ async def master_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute('INSERT INTO clones (owner_id, bot_token, bot_username) VALUES (?, ?, ?)', (user.id, token, bname))
     db.commit(); db.close()
     
-    # Start clone in thread
     threading.Thread(target=run_clone, args=(token,), daemon=True).start()
     await update.message.reply_text(f"✅ Bot @{bname} cloned successfully! It is now online.")
 
-async def master_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def master_redzone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
-    db = get_db(); c = db.cursor()
-    clones = c.execute('SELECT * FROM clones').fetchall()
-    db.close()
-    
-    text = "🔧 <b>Master Admin Panel</b>\n\n<b>Cloned Bots:</b>\n"
-    for cl in clones:
-        status = "🚫 Banned" if cl['is_banned'] else "✅ Active"
-        text += f"\n🤖 @{cl['bot_username']}\n   👑 Owner: <code>{cl['owner_id']}</code>\n   🔑 Token: <code>{cl['bot_token']}</code>\n   {status}\n"
-    
-    text += "\n\nCommands:\n/ban <token> - Ban a cloned bot\n/unban <token> - Unban bot\n/users - See total users"
-    await update.message.reply_text(text, parse_mode='HTML')
-
-async def master_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return
-    if not context.args: return await update.message.reply_text("Usage: /ban <token>")
-    db = get_db(); c = db.cursor()
-    c.execute('UPDATE clones SET is_banned = 1 WHERE bot_token = ?', (context.args[0],))
-    db.commit(); db.close()
-    await update.message.reply_text("✅ Bot banned successfully.")
-
-async def master_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return
-    db = get_db(); c = db.cursor()
-    users = c.execute('SELECT * FROM users LIMIT 50').fetchall()
-    clones = c.execute('SELECT * FROM clones').fetchall()
-    text = f"📊 <b>Stats</b>\n\nTotal Clones: {len(clones)}\nTotal Users: {len(users)}\n\n<b>Recent Users:</b>\n"
-    for u in users: text += f"• {u['first_name']} (<code>{u['telegram_id']}</code>) - Searches: {u['total_searches']}\n"
-    db.close()
-    await update.message.reply_text(text, parse_mode='HTML')
+    await update.message.reply_text("🔴 <b>REDZONE Master Admin Panel</b>\n\nSelect an option:", reply_markup=get_admin_keyboard(), parse_mode='HTML')
 
 # ======================== MAIN ========================
 def main():
@@ -205,12 +263,12 @@ def main():
     
     # Start Master Bot
     app = Application.builder().token(MASTER_TOKEN).build()
-    app.add_handler(CommandHandler("start", master_start))
+    app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("clone", master_clone))
-    app.add_handler(CommandHandler("admin", master_admin))
-    app.add_handler(CommandHandler("ban", master_ban))
-    app.add_handler(CommandHandler("users", master_users))
-    print("🚀 Master Bot is running with clones...")
+    app.add_handler(CommandHandler("redzone", master_redzone))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("🔴 REDZONE Master Bot is running...")
     app.run_polling()
 
 if __name__ == '__main__':
