@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ParseMode
 from flask import Flask
 
-# ======================== MASTER CONFIGURATION ========================
+# ======================== MASTER CONFIGURATION (Secrets Removed) ========================
 MASTER_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "0").split(",") if x]
 
@@ -13,9 +13,9 @@ DB_PATH = "master.db"
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# APIs
-API_NUM = "https://num-to-info-reseller.asurpapa.workers.dev/api?key=@SHURU_33-PAGLUU&number={query}"
-API_AADHAR = "https://aadhaar.asurpapa.workers.dev/api?key=1&aadhaar={query}"
+# APIs - Ab Environment Variables se aayegi, hack nahi hogi!
+API_NUM = os.environ.get("API_NUM", "")
+API_AADHAR = os.environ.get("API_AADHAR", "")
 
 # ======================== FLASK WEB SERVER ========================
 app_web = Flask(__name__)
@@ -45,6 +45,9 @@ def init_db():
 
 # ======================== API FORMATTER ========================
 def execute_search(query, stype):
+    if stype == 'aadhar' and not API_AADHAR: return "❌ Aadhar API not configured."
+    if stype == 'num' and not API_NUM: return "❌ Number API not configured."
+        
     url = (API_AADHAR if stype == 'aadhar' else API_NUM).replace("{query}", query)
     try:
         data = requests.get(url, timeout=15).json()
@@ -101,7 +104,7 @@ async def clone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db = get_db(); c = db.cursor()
         u = c.execute('SELECT coins FROM users WHERE bot_token = ? AND telegram_id = ?', (token, user.id)).fetchone()
         db.close()
-        await q.edit_message_text(f"🪙 <b>My Credits</b>\n\n💰 Balance: {u['coins'] if u else 0}", reply_mode='HTML')
+        await q.edit_message_text(f"🪙 <b>My Credits</b>\n\n💰 Balance: {u['coins'] if u else 0}", parse_mode='HTML')
 
 async def clone_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user; msg = update.message.text; token = context.bot_data['token']
@@ -140,7 +143,7 @@ async def master_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = context.args[0]
     
     try:
-        bot_info = await requests.get(f"https://api.telegram.org/bot{token}/getMe").json()
+        bot_info = requests.get(f"https://api.telegram.org/bot{token}/getMe").json()
         if not bot_info.get('ok'): return await update.message.reply_text("❌ Invalid Token.")
         bname = bot_info['result']['username']
     except: return await update.message.reply_text("❌ Failed to verify token.")
@@ -167,7 +170,7 @@ async def master_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "🚫 Banned" if cl['is_banned'] else "✅ Active"
         text += f"\n🤖 @{cl['bot_username']}\n   👑 Owner: <code>{cl['owner_id']}</code>\n   🔑 Token: <code>{cl['bot_token']}</code>\n   {status}\n"
     
-    text += "\n\nCommands:\n/ban <token> - Ban a cloned bot\n/unban <token> - Unban bot\n/users - See total users\n/broadcast <msg> - Broadcast to owners"
+    text += "\n\nCommands:\n/ban <token> - Ban a cloned bot\n/unban <token> - Unban bot\n/users - See total users"
     await update.message.reply_text(text, parse_mode='HTML')
 
 async def master_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
